@@ -10,13 +10,14 @@
 
 ## About
 
-Nightfall Snake turns the GitHub contribution calendar into an animated hunt: a glowing serpent crosses the entire grid, consumes active contribution cells and resets for another cycle.
+Nightfall Snake turns the GitHub contribution calendar into an animated hunt: a compact four-piece serpent moves like the classic Snake game, consumes active contribution cells and resets for another cycle. Its pseudo-random route changes every day while still visiting the complete grid.
 
 This project is an independent implementation of the contribution-snake concept. Its path solver, animation timeline, SVG renderer and Nightfall visual system were written from scratch in TypeScript for `duartess7`; no contribution-snake generator source code was copied.
 
 ## Features
 
-- original serpentine path solver;
+- original randomized game-path solver;
+- compact head plus three-piece body, without a long trail;
 - animated SVG with no browser-side JavaScript;
 - contribution cells consumed in timeline order;
 - direct GitHub GraphQL integration;

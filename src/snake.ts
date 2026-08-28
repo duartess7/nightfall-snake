@@ -14,26 +14,82 @@ const GRID_Y = 122;
 const CELL = 13;
 const STEP = 18;
 const ROWS = 7;
-const DURATION = 18;
+const DURATION = 30;
 
 const escapeXml = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
-export function buildTraversal(columns: number, rows = ROWS): Point[] {
-  const points: Point[] = [];
-  for (let row = 0; row < rows; row += 1) {
-    const forward = row % 2 === 0;
-    for (let offset = 0; offset < columns; offset += 1) {
-      const column = forward ? offset : columns - 1 - offset;
-      points.push({
-        x: GRID_X + column * STEP + CELL / 2,
-        y: GRID_Y + row * STEP + CELL / 2,
-        column,
-        row,
-      });
+export function seedFromText(value: string): number {
+  let hash = 0x811c9dc5;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function randomGenerator(seed: number): () => number {
+  let state = seed || 0x6d2b79f5;
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+const toPoint = (column: number, row: number): Point => ({
+  x: GRID_X + column * STEP + CELL / 2,
+  y: GRID_Y + row * STEP + CELL / 2,
+  column,
+  row,
+});
+
+export function buildGameTraversal(columns: number, rows = ROWS, seed = 1): Point[] {
+  if (columns <= 0 || rows <= 0) return [];
+
+  const random = randomGenerator(seed);
+  const start = {
+    column: Math.floor(random() * columns),
+    row: Math.floor(random() * rows),
+  };
+  const key = (column: number, row: number): string => `${column}:${row}`;
+  const visited = new Set([key(start.column, start.row)]);
+  const stack = [start];
+  const route = [toPoint(start.column, start.row)];
+
+  while (stack.length > 0) {
+    const current = stack.at(-1);
+    if (!current) break;
+    const candidates = [
+      { column: current.column + 1, row: current.row },
+      { column: current.column - 1, row: current.row },
+      { column: current.column, row: current.row + 1 },
+      { column: current.column, row: current.row - 1 },
+    ].filter(
+      (candidate) =>
+        candidate.column >= 0 &&
+        candidate.column < columns &&
+        candidate.row >= 0 &&
+        candidate.row < rows &&
+        !visited.has(key(candidate.column, candidate.row)),
+    );
+
+    if (candidates.length > 0) {
+      const next = candidates[Math.floor(random() * candidates.length)];
+      if (!next) continue;
+      visited.add(key(next.column, next.row));
+      stack.push(next);
+      route.push(toPoint(next.column, next.row));
+    } else {
+      stack.pop();
+      const parent = stack.at(-1);
+      if (parent) route.push(toPoint(parent.column, parent.row));
     }
   }
-  return points;
+
+  return route;
 }
 
 export function buildPath(points: Point[]): string {
@@ -56,7 +112,11 @@ function contributionCells(calendar: ContributionCalendar, points: Point[]): str
     1,
     ...calendar.weeks.flatMap((week) => week.contributionDays.map((day) => day.contributionCount)),
   );
-  const pathIndex = new Map(points.map((point, index) => [`${point.column}:${point.row}`, index]));
+  const pathIndex = new Map<string, number>();
+  points.forEach((point, index) => {
+    const key = `${point.column}:${point.row}`;
+    if (!pathIndex.has(key)) pathIndex.set(key, index);
+  });
   const colors = ["#15101d", "#2d1740", "#512570", "#8040ad", "#c7a4f6"];
 
   return calendar.weeks
@@ -66,13 +126,14 @@ function contributionCells(calendar: ContributionCalendar, points: Point[]): str
         const count = day?.contributionCount ?? 0;
         const level = count === 0 ? 0 : Math.min(4, 1 + Math.floor((count / maximum) * 3));
         const index = pathIndex.get(`${column}:${row}`) ?? 0;
-        const progress = Math.min(0.96, Math.max(0.01, index / Math.max(points.length - 1, 1)));
-        const faded = Math.min(0.975, progress + 0.012);
+        const normalized = index / Math.max(points.length - 1, 1);
+        const progress = Math.min(0.975, Math.max(0.005, normalized * 0.98));
+        const faded = Math.min(0.987, progress + 0.006);
         const x = GRID_X + column * STEP;
         const y = GRID_Y + row * STEP;
         const tooltip = day ? `${day.date}: ${count} contributions` : "outside contribution range";
         const animation = count
-          ? `<animate attributeName="opacity" values="1;1;.08;.08;1" keyTimes="0;${progress.toFixed(4)};${faded.toFixed(4)};.985;1" dur="${DURATION}s" repeatCount="indefinite"/>`
+          ? `<animate attributeName="opacity" values="1;1;.08;.08;1" keyTimes="0;${progress.toFixed(4)};${faded.toFixed(4)};.992;1" dur="${DURATION}s" repeatCount="indefinite"/>`
           : "";
         return `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="3" fill="${colors[level]}"><title>${escapeXml(tooltip)}</title>${animation}</rect>`;
       }),
@@ -81,10 +142,10 @@ function contributionCells(calendar: ContributionCalendar, points: Point[]): str
 }
 
 function snakeBody(): string {
-  const segments = Array.from({ length: 12 }, (_, index) => {
-    const radius = Math.max(2.8, 6.2 - index * 0.24);
-    const opacity = Math.max(0.22, 0.92 - index * 0.055);
-    const delay = (index + 1) * 0.055;
+  const segments = Array.from({ length: 3 }, (_, index) => {
+    const radius = 6.1 - index * 0.65;
+    const opacity = 0.86 - index * 0.14;
+    const delay = (index + 1) * 0.075;
     return `<circle r="${radius.toFixed(1)}" fill="#8b5cf6" opacity="${opacity.toFixed(2)}">
       <animateMotion dur="${DURATION}s" begin="${delay.toFixed(3)}s" repeatCount="indefinite" rotate="auto"><mpath href="#snake-path"/></animateMotion>
     </circle>`;
@@ -102,7 +163,9 @@ function snakeBody(): string {
 
 export function renderSnake(calendar: ContributionCalendar, options: RenderOptions): string {
   const columns = calendar.weeks.length;
-  const points = buildTraversal(columns);
+  const daySeed = options.generatedAt.toISOString().slice(0, 10);
+  const seed = seedFromText(`${options.username}:${daySeed}:${calendar.totalContributions}`);
+  const points = buildGameTraversal(columns, ROWS, seed);
   const path = buildPath(points);
   const activeDays = calendar.weeks.reduce(
     (total, week) => total + week.contributionDays.filter((day) => day.contributionCount > 0).length,
@@ -135,11 +198,11 @@ export function renderSnake(calendar: ContributionCalendar, options: RenderOptio
   <text x="66" y="46" class="kicker">LIVE HUNT / ${escapeXml(options.username.toUpperCase())}</text>
   <text x="48" y="84" class="title">NIGHTFALL SERPENT</text>
   <text x="1052" y="45" text-anchor="end" class="detail">${calendar.totalContributions} CONTRIBUTIONS // ${activeDays} ACTIVE DAYS</text>
-  <text x="1052" y="82" text-anchor="end" class="kicker">CONSUME // RESET // REPEAT</text>
+  <text x="1052" y="82" text-anchor="end" class="kicker">RANDOM HUNT // FOUR-PIECE SERPENT</text>
   <g>${contributionCells(calendar, points)}</g>
   <g>${snakeBody()}</g>
   <path d="M48 284H1052" stroke="#291b39"/>
-  <text x="48" y="310" class="detail">ORIGINAL TYPESCRIPT ENGINE / GENERATED ${updated}</text>
+  <text x="48" y="310" class="detail">ORIGINAL TYPESCRIPT GAME ENGINE / GENERATED ${updated}</text>
   <text x="1052" y="310" text-anchor="end" class="kicker">THE VOID IS HUNGRY</text>
 </svg>
 `;
